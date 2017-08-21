@@ -38,8 +38,7 @@
 (defn parse-get-result [^GetResponse response]
   (->> response
     (extract-value)
-    (map parse-key-value)
-    (into {})))
+    (map parse-key-value)))
 
 (defn parse-put-result [^PutResponse response]
   (if (.hasPrevKv response)
@@ -52,8 +51,11 @@
    :event    (keyword (strings/lower-case (.name (.getEventType event))))})
 
 (defn future->chan [^CompletableFuture future]
-  (let [out (async/chan)]
-    (accept future (partial async/put! out))
+  (let [out (async/promise-chan)]
+    (accept future
+      (fn [val]
+        (async/put! out val)
+        (async/close! out)))
     out))
 
 (defn future-coll->chan [^CompletableFuture future]
@@ -68,27 +70,34 @@
     (into-array String endpoints))
     (.build)))
 
-(defn get-options [opts]
-  (-> (GetOption/newBuilder)
-    (.build)))
+(defn get-options [{:keys [prefix]}]
+  (cond-> (GetOption/newBuilder)
+    (not (strings/blank? prefix))
+    (.withPrefix (ByteSequence. ^String prefix))
+    :always (.build)))
 
 (defn put-options [opts]
   (-> (PutOption/newBuilder)
+    (.withPrevKV)
     (.build)))
 
-(defn watch-options [opts]
-  (-> (WatchOption/newBuilder)
-    (.build)))
+(defn watch-options [{:keys [^String prefix ^Long revision]}]
+  (cond-> (WatchOption/newBuilder)
+    (not (strings/blank? prefix)) (.withPrefix (ByteSequence. ^String prefix))
+    (pos? revision) (.withRevision revision)
+    :always (.withPrevKV true)
+    :always (.build)))
 
-(defn attach-cleanup! [chan f]
+(defn set-cleanup! [chan f]
   (add-watch (.closed ^ManyToManyChannel chan)
-    (gensym "channel-cleanup")
+    "channel-resource-cleanup"
     (fn [_ _ old-state new-state]
       (when (and (not old-state) new-state)
         (f))))
   chan)
 
 (defn put*
+  "Puts a value into etcd at the given key."
   ([^Client client ^String key data]
    (put* client key data {}))
   ([^Client client ^String key data opts]
@@ -99,9 +108,11 @@
          (ByteSequence.
            (json/generate-string data))
          (put-options opts))
-       (then parse-put-result)))))
+       (then parse-put-result)
+       (future->chan)))))
 
 (defn list*
+  "Gets the values from etcd at the given key."
   ([^Client client ^String key]
    (list* client key {}))
   ([^Client client ^String key opts]
@@ -110,9 +121,12 @@
        (.get kv
          (ByteSequence. key)
          (get-options opts))
-       (then parse-get-result)))))
+       (then parse-get-result)
+       (future-coll->chan)))))
 
 (defn watch*
+  "Starts a watch against the given key and returns
+  a channel that emits whenever a value has changed."
   ([^Client client ^String key]
    (watch* client key {}))
   ([^Client client ^String key opts]
@@ -128,5 +142,35 @@
              (map parse-watch-event events) false)
            (async/<! (async/timeout POLLING_INTERVAL))))
        (recur (.listen watcher)))
-     (attach-cleanup! output #(.close watcher)))))
+     (set-cleanup! output #(.close watcher)))))
+
+(defn initial-state [entry]
+  {:event :initial :data entry})
+
+(defn evented-state [event]
+  {:event (get event :event)
+   :data  (dissoc event :event)})
+
+(defn subscribe*
+  "Returns a channel emitting the current state of the
+  given key followed by additional changes as they occur."
+  [^Client client ^String key]
+  (let [kv     (.getKVClient client)
+        result (async/chan)]
+    (accept
+      (.get kv (ByteSequence. key)
+        (get-options {:prefix key}))
+      (fn [^GetResponse response]
+        (let [rev (.getRevision (.getHeader response))]
+          (async/pipe
+            (async/merge
+              [(async/map initial-state
+                 [(async/to-chan
+                    (parse-get-result response))])
+               (async/map evented-state
+                 [(watch* client key
+                    {:revision (inc rev) :prefix key})])])
+            result))))
+    result))
+
 

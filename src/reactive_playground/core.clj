@@ -1,5 +1,6 @@
 (ns reactive-playground.core
   (:require [reactive-playground.client :as client]
+            [clojure.pprint :as pprint]
             [clojure.core.async :as async]))
 
 
@@ -12,10 +13,8 @@
   (client/make-client
     {:endpoints endpoints}))
 
-(let [watch (client/watch* client "dogs")]
-  (println watch)
-  (async/go-loop [input watch]
-    (println (async/<! input))
-    (recur watch)))
-
-(client/put* client "dogs" {:stuff "things"})
+(defonce guard
+  (async/go-loop
+    [input (client/subscribe* client "/dogs")]
+    (pprint/pprint (async/<! input))
+    (recur input)))
