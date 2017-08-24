@@ -20,10 +20,9 @@
   (let [chunked-body (:body response)]
     (if (= 200 (:status response))
       (a/go-loop [body (prepare-byte-chan chunked-body)]
-        (let [chunk (a/<! body)]
-          (f chunk)
-          (recur body))))
-    (println "Failed!")))
+        (when-some [chunk (a/<! body)]
+          (f chunk) (recur body)))
+      (println "Failed to establish initial connection!"))))
 
 (defn connect [f]
   (let [client
