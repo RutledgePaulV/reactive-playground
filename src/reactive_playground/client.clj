@@ -14,12 +14,10 @@
 (def POLLING_INTERVAL 100)
 
 (defn ^Function lift-function [f]
-  (reify Function
-    (apply [_ arg] (f arg))))
+  (reify Function (apply [_ arg] (f arg))))
 
 (defn ^Consumer lift-consumer [f]
-  (reify Consumer
-    (accept [_ arg] (f arg))))
+  (reify Consumer (accept [_ arg] (f arg))))
 
 (defn then [^CompletableFuture future f]
   (.thenApply future (lift-function f)))
