@@ -13,8 +13,7 @@
   (->> byte-chan
     (a/map< #(IOUtils/toString ^bytes %))
     (a/filter< #(strings/starts-with? % "data: "))
-    (a/map< (partial drop (.length "data: ")))
-    (a/map< (partial apply str))
+    (a/map< #(.substring % (.length "data: ")))
     (a/map< cheshire/parse-string)))
 
 (defn handle-response [f response]
