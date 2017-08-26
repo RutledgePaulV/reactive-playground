@@ -4,14 +4,12 @@
             [cheshire.core :as json])
   (:import (com.coreos.jetcd.options GetOption PutOption WatchOption)
            (com.coreos.jetcd.data ByteSequence KeyValue)
-           (com.coreos.jetcd Client)
            (java.util.function Function Consumer)
            (java.util.concurrent CompletableFuture)
            (com.coreos.jetcd.kv GetResponse PutResponse)
            (com.coreos.jetcd.watch WatchEvent)
-           (clojure.core.async.impl.channels ManyToManyChannel)))
-
-(def POLLING_INTERVAL 100)
+           (clojure.core.async.impl.channels ManyToManyChannel)
+           (com.coreos.jetcd Client)))
 
 (defn ^Function lift-function [f]
   (reify Function (apply [_ arg] (f arg))))
@@ -133,14 +131,18 @@
                    (ByteSequence. key)
                    (watch-options opts))
          output  (async/chan)]
-     (async/go-loop [response (.listen watcher)]
-       (let [events (.getEvents response)]
-         (if-not (.isEmpty events)
+     (async/go-loop []
+       (when-some
+         [events (async/<!
+                   (async/thread
+                     (let [response (.listen watcher)]
+                       (.getEvents response))))]
+         (when-not (.isEmpty events)
            (async/onto-chan output
-             (map parse-watch-event events) false)
-           (async/<! (async/timeout POLLING_INTERVAL))))
-       (recur (.listen watcher)))
-     (set-cleanup! output #(.close watcher)))))
+             (map parse-watch-event events) false)))
+       (recur))
+     (set-cleanup! output
+       #(.close watcher)))))
 
 (defn initial-state [entry]
   {:event :initial :data entry})
@@ -159,12 +161,12 @@
       (.get kv (ByteSequence. key)
         (get-options {:prefix key}))
       (fn [^GetResponse response]
-        (let [rev (.getRevision (.getHeader response))]
+        (let [rev (.getRevision
+                    (.getHeader response))]
           (async/pipe
             (async/merge
               [(async/map initial-state
-                 [(async/to-chan
-                    (parse-get-result response))])
+                 [(async/to-chan (parse-get-result response))])
                (async/map evented-state
                  [(watch* client key
                     {:revision (inc rev) :prefix key})])])
