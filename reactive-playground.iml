@@ -34,7 +34,10 @@
     <orderEntry type="library" name="Leiningen: com.google.javascript/closure-compiler:v20130603" level="project" />
     <orderEntry type="library" name="Leiningen: com.google.protobuf/protobuf-java-util:3.3.1" level="project" />
     <orderEntry type="library" name="Leiningen: com.google.protobuf/protobuf-java:3.3.1" level="project" />
+    <orderEntry type="library" name="Leiningen: com.launchdarkly/okhttp-eventsource:1.5.2" level="project" />
     <orderEntry type="library" name="Leiningen: com.ninjudd/eventual:0.5.5" level="project" />
+    <orderEntry type="library" name="Leiningen: com.squareup.okhttp3/okhttp:3.8.1" level="project" />
+    <orderEntry type="library" name="Leiningen: com.squareup.okio/okio:1.13.0" level="project" />
     <orderEntry type="library" name="Leiningen: com.taoensso/encore:2.91.0" level="project" />
     <orderEntry type="library" name="Leiningen: com.taoensso/timbre:4.10.0" level="project" />
     <orderEntry type="library" name="Leiningen: com.taoensso/truss:1.5.0" level="project" />

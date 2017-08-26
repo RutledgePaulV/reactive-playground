@@ -10,6 +10,7 @@
                  [compojure "1.6.0"]
                  [com.taoensso/timbre "4.10.0"]
                  [com.coreos/jetcd-core "0.0.1"]
-                 [org.clojure/core.async "0.3.443"]]
+                 [org.clojure/core.async "0.3.443"]
+                 [com.launchdarkly/okhttp-eventsource "1.5.2"]]
 
   :main reactive-playground.core)

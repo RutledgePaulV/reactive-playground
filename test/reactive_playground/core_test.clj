@@ -1,34 +1,51 @@
 (ns reactive-playground.core-test
-  (:require [clojure.test :refer :all]
-            [clojure.core.async :as a]
-            [clojure.string :as strings]
-            [cheshire.core :as cheshire])
-  (:import (org.apache.commons.io IOUtils)))
+  (:require [clojure.core.async :as async])
+  (:import [com.launchdarkly.eventsource EventHandler EventSource$Builder]
+           (java.net URI)
+           (okhttp3 Headers$Builder)
+           (clojure.core.async.impl.channels ManyToManyChannel)))
 
-; a hacky SSE client to receive events
+(defn set-cleanup! [chan f]
+  (add-watch (.closed ^ManyToManyChannel chan)
+    "channel-resource-cleanup"
+    (fn [_ _ old-state new-state]
+      (when (and (not old-state) new-state)
+        (f))))
+  chan)
 
-;(defn prepare-byte-chan [byte-chan]
-;  (->> byte-chan
-;    (a/map< #(IOUtils/toString ^bytes %))
-;    (a/filter< #(strings/starts-with? % "data: "))
-;    (a/map< #(.substring % (.length "data: ")))
-;    (a/map< cheshire/parse-string)))
-;
-;(defn handle-response [f response]
-;  (let [chunked-body (:body response)]
-;    (if (= 200 (:status response))
-;      (a/go-loop [body (prepare-byte-chan chunked-body)]
-;        (when-some [chunk (a/<! body)]
-;          (f chunk) (recur body)))
-;      (println "Failed to establish initial connection!"))))
-;
-;(defn connect [f]
-;  (let [client
-;        (http/client)
-;        response-chan
-;        (http/get client
-;          "http://localhost:3000/api/subscribe/customer"
-;          {:fold-chunked-response? false :as :bytes})]
-;    (handle-response f (a/<!! response-chan))))
-;
-;(connect (fn [chunk] (println chunk)))
+(def default-headers
+  {})
+
+(defn handler [chan]
+  (reify EventHandler
+    (onMessage [_ event message-event]
+      (async/put! chan (.getData message-event)))
+    (onOpen [_]
+      (println "Connection established!"))
+    (onError [_ e]
+      (println "Encountered error!"))
+    (onClosed [_]
+      (async/close! chan))))
+
+(defn make-headers [headers]
+  (let [builder (Headers$Builder.)]
+    (.build (reduce (fn [b [k v]]
+                      (.add b (name k) (name v)))
+              builder headers))))
+
+(defn listen [url & [{:keys [headers] :or {headers {}}}]]
+  (let [output (async/chan)
+        source (-> (EventSource$Builder. (handler output) (URI. url))
+                 (.headers (make-headers (merge default-headers headers)))
+                 (.build))]
+    (.start source)
+    (set-cleanup! output
+      #(.close source))))
+
+
+(def channel (listen "http://localhost:3000/api/subscribe/customer"))
+
+(async/go-loop [chan channel]
+  (let [event (async/<! chan)]
+    (println event))
+  (recur chan))
